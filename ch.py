@@ -107,7 +107,6 @@ maxtime = timeout * nports
 
 def port_scan ():
 	print 'Scanning ' + host['addr'] +' (max scan time ' + str(maxtime) + ' seconds)...'
-	print 'Ports: ' + str(ports)
 	s = None
 
 	for port in ports:
@@ -145,7 +144,7 @@ def port_scan ():
 		if port == 23794:
 			host['innominate'] = True
 
-	print '##########################'
+	print 'Finished scanning'
 
 	if host['alive']:
 		do_connect()
@@ -235,7 +234,7 @@ def do_ssh():
 		unamein = raw_input('Username to connect as? [' + defaultUN + ']')
 		if unamein:
 			username = unamein
-		subprocess.call(os_info['ssh'], username + '@' + host['addr'])
+		subprocess.call(os_info['ssh'] + ' ' + username + '@' + host['addr'],shell=True)
 
 #-------------------------------------------------------------------------------
 
