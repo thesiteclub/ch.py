@@ -74,8 +74,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('host', help='IP or name of host')
 parser.add_argument('-p', '--ports',
 	help='Comma separated list of ports to check or "all"')
+parser.add_argument('-s', '--scan', action='count', default=0,
+	help='Port scan only')
 parser.add_argument('-v', '--verbose', action='count', default=0,
     help='increase output')
+parser.add_argument('-V', '--version', action='count', default=0,
+    help='Print version')
 args = parser.parse_args()
 
 # Do input checking?
@@ -105,6 +109,21 @@ maxtime = timeout * nports
 	# Create default config file
 #-------------------------------------------------------------------------------
 
+def check_app(app):
+	if app == None:
+		return 0
+
+	if os_info['name'] == 'Windows':
+		if os.access(os_info[app], os.X_OK):
+			return 0
+	else:
+		try:
+			rc = subprocess.check_call('which ' + app + '>/dev/null 2>&1', shell=True)
+		except subprocess.CalledProcessError as msg:
+			print 'it pooped'
+			return 0
+	return 1
+
 def port_scan ():
 	print 'Scanning ' + host['addr'] +' (max scan time ' + str(maxtime) + ' seconds)...'
 	s = None
@@ -126,7 +145,8 @@ def port_scan ():
 			break
 		if s is None:
 			continue
-		print host['addr'] + ':' + str(port) + ' - OK'
+		svcname = socket.getservbyport(port)
+		print host['addr'] + ':' + str(port) + ' (' + svcname + ') - OK'
 		s.close()
 		host['alive'] = True
 		if port == 22:
@@ -153,12 +173,11 @@ def port_scan ():
 
 # Handles for notdown events
 def do_connect():
-	print host
 
 	if host['rdp']:
 		do_rdp()
 
-	if host['ssh']:
+	if host['ssh'] and check_app(os_info['ssh']):
 		do_ssh()
 
 	if host['tivoli']:
@@ -202,13 +221,13 @@ def do_rdp():
 			screen = '-f '
 		console = raw_input('Attach to console? [y/N]')
 		consolo = '-0 '
-		subshell.call('rdesktop', screen + consolo + '-r sound:remote -u '
+		subprocess.call('rdesktop', screen + consolo + '-r sound:remote -u '
 			+ username + ' -p ' + password + ' -a 16 ' + host['addr'] + ' &')
 	if os_info['name'] == 'MacOS':
 		create_rdp()
-		subprocess.call('open /tmp/' + host['addr'] + '.rdp')
+		subprocess.call('open', '/tmp/' + host['addr'] + '.rdp')
 	if os_info['name'] == 'Windows':
-		subshell.call('mstsc', '/admin /v:'+ host['addr'])
+		subprocess.call('mstsc', '/admin /v:'+ host['addr'])
 
 #-------------------------------------------------------------------------------
 
@@ -456,7 +475,7 @@ def create_rdp():
 ################################################################################
 
 if verbose:
-	print 'Selected ports: ' + str(ports)
+#	print 'Selected ports: ' + str(ports)
 	print 'Running in: ' + os_info['name']
 	print 'Using: ' + os_info['ssh'] + ', ' + os_info['rdp'] + ', ' + os_info['browser']
 
