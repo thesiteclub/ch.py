@@ -39,17 +39,18 @@ os_code = platform.system()
 
 if os_code == 'Darwin':
 	os_info = { 'name': 'MacOS', 'lookup': 'host', 'browser': 'open',
-	'ssh': 'ssh', 'rdp': 'rdesktop' }
+	'ssh': 'ssh', 'rdp': 'rdesktop', 'mysql': 'mysql' }
 if os_code == 'Windows':
 	os_info = { 'name': 'Windows', 'lookup': 'nslookup',
 	'browser': 'C:/Progra~1/Mozill~1/firefox.exe',
-	'ssh': 'C:/Progra~1/PuTTY/putty.exe -ssh', 'rdp': 'rdesktop' }
+	'ssh': 'C:/Progra~1/PuTTY/putty.exe -ssh', 'rdp': 'rdesktop',
+	'mysql': 'mysql' }
 if os_code == 'Linux':
 	os_info = { 'name': 'Linux', 'lookup': 'host', 'browser': 'firefox',
-	'ssh': 'ssh', 'rdp': 'rdesktop' }
+	'ssh': 'ssh', 'rdp': 'rdesktop', 'mysql': 'mysql' }
 if os_code == 'Solaris':
 	os_info = { 'name': 'Solaris', 'lookup': 'host', 'browser': 'firefox',
-	'ssh': 'ssh' }
+	'ssh': 'ssh', 'mysql': 'mysql' }
 
 # TODO: Generate these based on $USER and/or read from config file
 # default username -SSH
@@ -58,8 +59,7 @@ defaultUN = "glangdin"
 defaultUNMicrosoft = "\'ics\\glangdin\'"
 defaultdb = 'enf'
 
-timeout = 0.15
-socket.setdefaulttimeout(timeout)
+timeout=0.15
 
 # List of ports to check
 ports = [21,22,23,25,53,80,110,139,143,389,443,465,636,902,903,993,995,1433,
@@ -67,7 +67,8 @@ ports = [21,22,23,25,53,80,110,139,143,389,443,465,636,902,903,993,995,1433,
 
 # Perhaps this should be a class (aka object), but this works!
 host = {'addr': None, 'alive': False, 'ssh': False, 'rdp': False, 'pgsql': False,
-	'whm': False, 'tivoli': False, 'plesk': False, 'innominate': False}
+	'whm': False, 'tivoli': False, 'plesk': False, 'innominate': False,
+	'http': False, 'https': False, 'mysql': False}
 
 # Parse command line arguments
 parser = argparse.ArgumentParser()
@@ -76,15 +77,23 @@ parser.add_argument('-p', '--ports',
 	help='Comma separated list of ports to check or "all"')
 parser.add_argument('-s', '--scan', action='count', default=0,
 	help='Port scan only')
+parser.add_argument('-t', '--timeout',
+	help='Max time to wait for a port to respond when scanning', default=0.15)
 parser.add_argument('-v', '--verbose', action='count', default=0,
     help='increase output')
 parser.add_argument('-V', '--version', action='count', default=0,
     help='Print version')
+# TODO: Properly handle case when no arguments are given
 args = parser.parse_args()
 
 # Do input checking?
 host['addr'] = args.host
 verbose = args.verbose
+
+if args.timeout:
+	timeout=float(args.timeout)
+
+socket.setdefaulttimeout(timeout)
 
 if args.ports:
 	if args.ports == 'all':
@@ -101,12 +110,12 @@ maxtime = timeout * nports
 
 #-------------------------------------------------------------------------------
 # def read_config(level, site_code, message):
-	# Read config file
+	# TODO: Read config file
 #-------------------------------------------------------------------------------
 # def setup(level, site_code, message):
 
-	# Check to see if ch.py is aliased in ~/.bash_profile
-	# Create default config file
+	# TODO: Check to see if ch.py is aliased in ~/.bash_profile
+	# TODO: Create default config file
 #-------------------------------------------------------------------------------
 
 def check_app(app):
@@ -120,7 +129,7 @@ def check_app(app):
 		try:
 			rc = subprocess.check_call('which ' + app + '>/dev/null 2>&1', shell=True)
 		except subprocess.CalledProcessError as msg:
-			print 'it pooped'
+			print 'Check for app ' + app + 'failed. You probably need to install it.'
 			return 0
 	return 1
 
@@ -146,15 +155,21 @@ def port_scan ():
 		if s is None:
 			continue
 		svcname = socket.getservbyport(port)
-		print host['addr'] + ':' + str(port) + ' (' + svcname + ') - OK'
+		print str(port) + ' (' + svcname + ') - OK'
 		s.close()
 		host['alive'] = True
 		if port == 22:
 			host['ssh'] = True
+		if port == 80:
+			host['http'] = True
+		if port == 443:
+			host['https'] = True
 		if port == 1581:
 			host['tivoli'] = True
 		if port == 2087:
 			host['whm'] = True
+		if port == 3306:
+			host['mysql'] = True
 		if port == 3389:
 			host['rdp'] = True
 		if port == 5432:
@@ -180,20 +195,26 @@ def do_connect():
 	if host['ssh'] and check_app(os_info['ssh']):
 		do_ssh()
 
+	if host['http']:
+		open_browser('http', 'http://' + host['addr'])
+
+	if host['https']:
+		open_browser('http', 'https://' + host['addr'])
+
 	if host['tivoli']:
-		open_browser('Tivoli', 1581)
+		open_browser('Tivoli', 'http://' + host['addr'] + ':' + 1581)
 
 	if host['whm']:
-		open_browser('WHM', 2087)
+		open_browser('WHM', 'http://' + host['addr'] + ':' + 2087)
 
 	if host['pgsql']:
-		do_pgsql('Postgresql', 5432)
+		do_pgsql(5432)
 
 	if host['plesk']:
-		open_browser('Plesk', 8443)
+		open_browser('Plesk', 'http://' + host['addr'] + ':' + 8443)
 
 	if host['innominate']:
-		open_browser('Innominate',23794)
+		open_browser('Innominate', 'http://' + host['addr'] + ':' + 23794)
 
 #-------------------------------------------------------------------------------
 
@@ -231,18 +252,18 @@ def do_rdp():
 
 #-------------------------------------------------------------------------------
 
-def open_browser(service, port):
+def open_browser(service, URL):
 	print '....................'
 	print '.   ' + service + ' CAPABLE	  .'
 	print '....................'
 	if raw_input('Open in browser window? [y/N]') != 'y':
 		return
 	print 'starting ' + service +'  session'
-	subprocess.call(os_info['browser'], 'http://' + host['addr'] + ':' + port + ' &')
+	subprocess.call(os_info['browser'] + " '" + URL + "' &", shell=True)
 
 #-------------------------------------------------------------------------------
 
-def do_ssh():
+def do_ssh(command=''):
 	print '....................'
 	print '.   SSH CAPABLE    .'
 	print '....................'
@@ -253,11 +274,11 @@ def do_ssh():
 		unamein = raw_input('Username to connect as? [' + defaultUN + ']')
 		if unamein:
 			username = unamein
-		subprocess.call(os_info['ssh'] + ' ' + username + '@' + host['addr'],shell=True)
+		subprocess.call(os_info['ssh'] + ' ' + username + '@' + host['addr'] + ' "' + command + '"', shell=True)
 
 #-------------------------------------------------------------------------------
 
-def do_pgsql():
+def do_pgsql(port):
 	print '....................'
 	print '.  PGSQL CAPABLE   .'
 	print '....................'
@@ -273,7 +294,29 @@ def do_pgsql():
 		if dbnamein:
 			dbname = dbnamein
 		subprocess.call(os_info['pgsql'], ' -U ' + username,
-			' -h' + host['addr'], '-D ' + dbname)
+			' -h' + host['addr'], ' -D ' + dbname + ' -p ' + port)
+
+#-------------------------------------------------------------------------------
+
+# TODO: Test
+def do_mysql(port):
+	print '....................'
+	print '.  MySQL CAPABLE   .'
+	print '....................'
+	doit = raw_input('Connect? [y/N]')
+	if doit == 'y':
+		print 'Connecting to ' + host['addr']
+		username = defaultUN
+		unamein = raw_input('Username: [' + defaultUN + ']')
+		if unamein:
+			username = unamein
+		dbname = defaultdb
+		dbnamein = raw_input('Database: [' + defaultdb + ']')
+		if dbnamein:
+			dbname = dbnamein
+		subprocess.call(os_info['mysql'], ' -u ' + username,
+			' -h' + host['addr'], ' -D ' + dbname + ' -P ' + port)
+
 
 #-------------------------------------------------------------------------------
 
@@ -476,7 +519,7 @@ def create_rdp():
 
 if verbose:
 #	print 'Selected ports: ' + str(ports)
-	print 'Running in: ' + os_info['name']
+	print 'Running on: ' + os_info['name']
 	print 'Using: ' + os_info['ssh'] + ', ' + os_info['rdp'] + ', ' + os_info['browser']
 
 subprocess.call([os_info['lookup'], host['addr']])
