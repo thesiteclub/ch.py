@@ -11,12 +11,19 @@
 #
 ################################################################################
 
+# TODO: Check Python version to ensure it is supported
+# TODO: Config file parser
+# TODO: Test (and fix) connecting to all services on Win/Mac/Linux
+# TODO: Properly handle case when no cmd line arguments are given
+# TODO: Check to see if ch.py is aliased in ~/.bash_profile
+# TODO: Allow user to set more options for RDP connections
+
 ################################################################################
 # Import stuff
 ################################################################################
 
 #import pg			# Postgresql
-import sys			# ??
+import sys			#
 import os			# OS commands
 import platform		# OS detection
 import subprocess	# OS commands
@@ -26,44 +33,61 @@ import argparse		# Cmd line arg parser - requires 2.7
 import array		#
 import socket		# Network
 import time			#
+import ConfigParser	# Config file parser
+import getpass		# Easy way to get current username
 
 ################################################################################
 # Variables
 ################################################################################
 
-# Map platform.system output to variables
-# This would be a perfect place for switch/case if Python had it!
+os_username = getpass.getuser()
 os_code = platform.system()
 
-# To call AppleScript from shell use osascript -e 'tell...'
+# Set defaults that can be changed by config file or command line args
+cf_parser = ConfigParser.ConfigParser()
+
+cf_parser.add_section('general')
+cf_parser.set('general', 'timeout', '0.15')
+cf_parser.set('general', 'ports', '21,22,23,25,53,80,110,139,143,389,443,465,636,902,903,993,995,1433,1581,2087,3306,3389,5432,8443,15500,23794')
 
 if os_code == 'Darwin':
-	os_info = { 'name': 'MacOS', 'lookup': 'host', 'browser': 'open',
-	'ssh': 'ssh', 'rdp': 'rdesktop', 'mysql': 'mysql' }
+	# To call AppleScript from shell use osascript -e 'tell...'
+	cf_parser.set('general', 'browser', 'open')
+	cf_parser.set('general', 'lookup', 'host')
+	cf_parser.set('general', 'ssh', 'ssh')
+	cf_parser.set('general', 'rdp', 'rdesktop')
+	cf_parser.set('general', 'mysql', 'mysql')
+
+if os_code == 'Linux' or os_code == 'Solaris':
+	cf_parser.set('general', 'browser', 'firefox')
+	cf_parser.set('general', 'lookup', 'host')
+	cf_parser.set('general', 'ssh', 'ssh')
+	cf_parser.set('general', 'rdp', 'rdesktop')
+	cf_parser.set('general', 'mysql', 'mysql')
+
 if os_code == 'Windows':
-	os_info = { 'name': 'Windows', 'lookup': 'nslookup',
-	'browser': 'C:/Progra~1/Mozill~1/firefox.exe',
-	'ssh': 'C:/Progra~1/PuTTY/putty.exe -ssh', 'rdp': 'rdesktop',
-	'mysql': 'mysql' }
-if os_code == 'Linux':
-	os_info = { 'name': 'Linux', 'lookup': 'host', 'browser': 'firefox',
-	'ssh': 'ssh', 'rdp': 'rdesktop', 'mysql': 'mysql' }
-if os_code == 'Solaris':
-	os_info = { 'name': 'Solaris', 'lookup': 'host', 'browser': 'firefox',
-	'ssh': 'ssh', 'mysql': 'mysql' }
+	cf_parser.set('general', 'browser', 'C:/Progra~1/Mozill~1/firefox.exe')
+	cf_parser.set('general', 'lookup', 'nslookup')
+	cf_parser.set('general', 'ssh', 'C:/Progra~1/PuTTY/putty.exe -ssh')
+	cf_parser.set('general', 'rdp', 'rdesktop')
+	cf_parser.set('general', 'mysql', 'mysql')
 
-# TODO: Generate these based on $USER and/or read from config file
-# default username -SSH
-defaultUN = "glangdin"
-# default username - RDP
-defaultUNMicrosoft = "\'ics\\glangdin\'"
-defaultdb = 'enf'
+cf_parser.add_section('ssh')
+cf_parser.set('ssh', 'username', os_username)
 
-timeout=0.15
+cf_parser.add_section('rdp')
+cf_parser.set('rdp', 'domain', 'WORKGROUP')
+cf_parser.set('rdp', 'username', os_username)
+cf_parser.set('rdp', 'height', '1024')
+cf_parser.set('rdp', 'width', '1280')
 
-# List of ports to check
-ports = [21,22,23,25,53,80,110,139,143,389,443,465,636,902,903,993,995,1433,
-		1581,2087,3306,3389,5432,8443,15500,23794]
+cf_parser.add_section('pgsql')
+cf_parser.set('pgsql', 'username', os_username)
+cf_parser.set('pgsql', 'database', 'enf')
+
+cf_parser.add_section('mysql')
+cf_parser.set('mysql', 'username', os_username)
+cf_parser.set('mysql', 'database', 'enf')
 
 # Perhaps this should be a class (aka object), but this works!
 host = {'addr': None, 'alive': False, 'ssh': False, 'rdp': False, 'pgsql': False,
@@ -71,29 +95,34 @@ host = {'addr': None, 'alive': False, 'ssh': False, 'rdp': False, 'pgsql': False
 	'http': False, 'https': False, 'mysql': False}
 
 # Parse command line arguments
-parser = argparse.ArgumentParser()
-parser.add_argument('host', help='IP or name of host')
-parser.add_argument('-p', '--ports',
+arg_parser = argparse.ArgumentParser()
+arg_parser.add_argument('host', help='IP or name of host')
+arg_parser.add_argument('-c', '--config',
+	help='Path to (optional) config file')
+arg_parser.add_argument('-p', '--ports',
 	help='Comma separated list of ports to check or "all"')
-parser.add_argument('-s', '--scan', action='count', default=0,
+arg_parser.add_argument('-s', '--scan', action='count', default=0,
 	help='Port scan only')
-parser.add_argument('-t', '--timeout',
+arg_parser.add_argument('-t', '--timeout',
 	help='Max time to wait for a port to respond when scanning', default=0.15)
-parser.add_argument('-v', '--verbose', action='count', default=0,
+arg_parser.add_argument('-v', '--verbose', action='count', default=0,
     help='increase output')
-parser.add_argument('-V', '--version', action='count', default=0,
+arg_parser.add_argument('-V', '--version', action='count', default=0,
     help='Print version')
-# TODO: Properly handle case when no arguments are given
-args = parser.parse_args()
+args = arg_parser.parse_args()
+
+if args.config:
+	cf_parser.read(args.config)
 
 # Do input checking?
 host['addr'] = args.host
 verbose = args.verbose
 
-if args.timeout:
-	timeout=float(args.timeout)
-
+timeout = cf_parser.getfloat('general', 'timeout')
+#timeout = args.timeout
 socket.setdefaulttimeout(timeout)
+
+ports = cf_parser.get('general', 'ports').split(',')
 
 if args.ports:
 	if args.ports == 'all':
@@ -108,22 +137,12 @@ maxtime = timeout * nports
 # Functions
 ################################################################################
 
-#-------------------------------------------------------------------------------
-# def read_config(level, site_code, message):
-	# TODO: Read config file
-#-------------------------------------------------------------------------------
-# def setup(level, site_code, message):
-
-	# TODO: Check to see if ch.py is aliased in ~/.bash_profile
-	# TODO: Create default config file
-#-------------------------------------------------------------------------------
-
 def check_app(app):
 	if app == None:
 		return 0
 
-	if os_info['name'] == 'Windows':
-		if os.access(os_info[app], os.X_OK):
+	if os_code == 'Windows':
+		if os.access(cf_parser.get('general', app), os.X_OK):
 			return 0
 	else:
 		try:
@@ -138,6 +157,7 @@ def port_scan ():
 	s = None
 
 	for port in ports:
+		port = int(port)
 		for res in socket.getaddrinfo(host['addr'], port, socket.AF_UNSPEC, socket.SOCK_STREAM):
 			af, socktype, proto, canonname, sa = res
 			try:
@@ -192,7 +212,7 @@ def do_connect():
 	if host['rdp']:
 		do_rdp()
 
-	if host['ssh'] and check_app(os_info['ssh']):
+	if host['ssh'] and check_app(cf_parser.get('general', 'ssh')):
 		do_ssh()
 
 	if host['http']:
@@ -227,9 +247,9 @@ def do_rdp():
 		return
 
 	print 'Connecting to ' + host['addr']
-	if os_info['name'] == 'Linux':
-		username = defaultUNMicrosoft
-		unamein = raw_input('Username to connect as?[' + defaultUNMicrosoft +']')
+	if os_code == 'Linux':
+		username = '\\' + cf_parser.get('rdp','domain') + '\\\\' + cf_parser.get('rdp','username')
+		unamein = raw_input('Username to connect as?[' + username +'] ')
 		if unamein:
 			username = unamein
 		password = ''
@@ -237,17 +257,17 @@ def do_rdp():
 		if passwordin:
 			password = passwordin
 		fullscreenin = raw_input('Fullscreen? [y/N]')
-		screen = '-g 1260x800 ';
+		screen = '-g ' + cf_parser.get('rdp','height') + 'x' + cf_parser.get('rdp','width');
 		if fullscreenin == 'y':
 			screen = '-f '
 		console = raw_input('Attach to console? [y/N]')
-		consolo = '-0 '
+		console = '-0 '
 		subprocess.call('rdesktop', screen + consolo + '-r sound:remote -u '
 			+ username + ' -p ' + password + ' -a 16 ' + host['addr'] + ' &')
-	if os_info['name'] == 'MacOS':
+	if os_code == 'Darwin':
 		create_rdp()
 		subprocess.call('open', '/tmp/' + host['addr'] + '.rdp')
-	if os_info['name'] == 'Windows':
+	if os_code == 'Windows':
 		subprocess.call('mstsc', '/admin /v:'+ host['addr'])
 
 #-------------------------------------------------------------------------------
@@ -259,7 +279,7 @@ def open_browser(service, URL):
 	if raw_input('Open in browser window? [y/N]') != 'y':
 		return
 	print 'starting ' + service +'  session'
-	subprocess.call(os_info['browser'] + " '" + URL + "' &", shell=True)
+	subprocess.call(cf_parser.get('general', 'browser') + " '" + URL + "' &", shell=True)
 
 #-------------------------------------------------------------------------------
 
@@ -270,11 +290,11 @@ def do_ssh(command=''):
 	doit = raw_input('Connect? [y/N]')
 	if doit == 'y':
 		print 'Connecting to ' + host['addr']
-		username = defaultUN
-		unamein = raw_input('Username to connect as? [' + defaultUN + ']')
+		username = cf_parser.get('ssh','username')
+		unamein = raw_input('Username to connect as? [' + username + '] ')
 		if unamein:
 			username = unamein
-		subprocess.call(os_info['ssh'] + ' ' + username + '@' + host['addr'] + ' "' + command + '"', shell=True)
+		subprocess.call(cf_parser.get('general', 'ssh') + ' ' + username + '@' + host['addr'] + ' "' + command + '"', shell=True)
 
 #-------------------------------------------------------------------------------
 
@@ -285,20 +305,19 @@ def do_pgsql(port):
 	doit = raw_input('Connect? [y/N]')
 	if doit == 'y':
 		print 'Connecting to ' + host['addr']
-		username = defaultUN
-		unamein = raw_input('Username: [' + defaultUN + ']')
+		username = cf_parser.get('pgsql','username')
+		unamein = raw_input('Username: [' + username + '] ')
 		if unamein:
 			username = unamein
-		dbname = defaultdb
-		dbnamein = raw_input('Database: [' + defaultdb + ']')
+		dbname = cf_parser.get('pgsql','database')
+		dbnamein = raw_input('Database: [' + dbname + '] ')
 		if dbnamein:
 			dbname = dbnamein
-		subprocess.call(os_info['pgsql'], ' -U ' + username,
+		subprocess.call(cf_parser.get('general', 'pgsql'), ' -U ' + username,
 			' -h' + host['addr'], ' -D ' + dbname + ' -p ' + port)
 
 #-------------------------------------------------------------------------------
 
-# TODO: Test
 def do_mysql(port):
 	print '....................'
 	print '.  MySQL CAPABLE   .'
@@ -306,15 +325,15 @@ def do_mysql(port):
 	doit = raw_input('Connect? [y/N]')
 	if doit == 'y':
 		print 'Connecting to ' + host['addr']
-		username = defaultUN
-		unamein = raw_input('Username: [' + defaultUN + ']')
+		username = cf_parser.get('pgsql','username')
+		unamein = raw_input('Username: [' + username + ']')
 		if unamein:
 			username = unamein
-		dbname = defaultdb
-		dbnamein = raw_input('Database: [' + defaultdb + ']')
+		dbname = cf_parser.get('pgsql','database')
+		dbnamein = raw_input('Database: [' + dbname + ']')
 		if dbnamein:
 			dbname = dbnamein
-		subprocess.call(os_info['mysql'], ' -u ' + username,
+		subprocess.call(cf_parser.get('general', 'mysql'), ' -u ' + username,
 			' -h' + host['addr'], ' -D ' + dbname + ' -P ' + port)
 
 
@@ -323,7 +342,6 @@ def do_mysql(port):
 # Microsoft's RDP client is free but typical MS garbage.
 # It lacks a command line utility and can not be controlled by AppleScript!
 # We work around this by creating a file for it to open
-# TODO: Let the user set defaults
 def create_rdp():
 	f = open('/tmp/' + host['addr'] + '.rdp', 'w')
 	f.write('''<?xml version="1.0" encoding="UTF-8"?>
@@ -349,9 +367,9 @@ def create_rdp():
 	<key>DesktopSize</key>
 	<dict>
 		<key>DesktopHeight</key>
-		<integer>1024</integer>
+		<integer>''' + parser.set('rdp', 'username', 'height') + '''</integer>
 		<key>DesktopWidth</key>
-		<integer>1280</integer>
+		<integer>''' + parser.set('rdp', 'username', 'width') + '''</integer>
 	</dict>
 	<key>Display</key>
 	<integer>0</integer>
@@ -484,31 +502,31 @@ def create_rdp():
 		<key>UI_WINDOWS_START_KEY</key>
 		<dict>
 			<key>MacKeyCode</key>
-			<integer>122</integer>
+				<integer>122</integer>
 			<key>MacModifier</key>
-			<integer>2048</integer>
-			<key>On</key>
-			<true/>
+				<integer>2048</integer>
+				<key>On</key>
+				<true/>
 		</dict>
 	</dict>
 	<key>MenuAnimations</key>
-	<false/>
+		<false/>
 	<key>PrinterRedirection</key>
-	<true/>
+		<true/>
 	<key>RedirectFolder</key>
-	<string>/Users/peanutt</string>
+		<string>/Users/peanutt</string>
 	<key>RedirectPrinter</key>
-	<string>all</string>
+		<string>all</string>
 	<key>RemoteApplication</key>
-	<false/>
+		<false/>
 	<key>Themes</key>
-	<true/>
+		<true/>
 	<key>UserName</key>
-	<string></string>
+		<string></string>
 	<key>Wallpaper</key>
-	<false/>
+		<false/>
 	<key>WorkingDirectory</key>
-	<string></string>
+		<string></string>
 </dict>
 </plist>''')
 	f.close()
@@ -518,11 +536,11 @@ def create_rdp():
 ################################################################################
 
 if verbose:
-#	print 'Selected ports: ' + str(ports)
-	print 'Running on: ' + os_info['name']
-	print 'Using: ' + os_info['ssh'] + ', ' + os_info['rdp'] + ', ' + os_info['browser']
+	print 'Selected ports: ' + str(ports)
+	print 'Running on: ' + os_code
+	print 'Using: ' + cf_parser.get('general', 'ssh') + ', ' + cf_parser.get('general', 'rdp') + ', ' + cf_parser.get('general', 'browser')
 
-subprocess.call([os_info['lookup'], host['addr']])
+subprocess.call([cf_parser.get('general', 'lookup'), host['addr']])
 
 #Resolve IP if hostname given, also, ensure a hostname is given
 #if re.match('^([\d]{1,3}\.[\d]{1,3}\.[\d]{1,3}\.[\d]{1,3})$',host['addr']):
