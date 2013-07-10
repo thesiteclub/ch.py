@@ -1,7 +1,7 @@
 #!/usr/bin/python
 #
 ################################################################################
-# ch.py v 0.1
+# ch.py
 # This script checks for ports (defined below) and then prompts the user
 # to open the pertinent ones
 #
@@ -17,6 +17,15 @@
 # TODO: Properly handle case when no cmd line arguments are given
 # TODO: Check to see if ch.py is aliased in ~/.bash_profile
 # TODO: Allow user to set more options for RDP connections
+# TODO: Replace program name in config with with full command and replace
+# keywords with variables
+# Ex: psql -U USER -d DATABASE -p PORT
+# TODO: Replace host variable and the loooong chain of if statements in port_scan
+# with a dictionary or object to map a port number to a service. Then lookup
+# service in the cf_parser to get the application to handle it. This will
+# simplify do_connect and make everything better.
+# TODO: FInish VNC section
+# TODO: Make -V print out the version
 
 ################################################################################
 # Import stuff
@@ -48,7 +57,7 @@ cf_parser = ConfigParser.ConfigParser()
 
 cf_parser.add_section('general')
 cf_parser.set('general', 'timeout', '0.15')
-cf_parser.set('general', 'ports', '21,22,23,25,53,80,110,139,143,389,443,465,636,902,903,993,995,1433,1581,2087,3306,3389,5432,8443,15500,23794')
+cf_parser.set('general', 'ports', '21,22,23,25,53,80,110,139,143,389,443,465,636,902,903,993,995,1433,1581,5900,5901,2087,3306,3389,5432,8443,15500,23794')
 
 if os_code == 'Darwin':
 	# To call AppleScript from shell use osascript -e 'tell...'
@@ -64,6 +73,7 @@ if os_code == 'Linux' or os_code == 'Solaris':
 	cf_parser.set('general', 'ssh', 'ssh')
 	cf_parser.set('general', 'rdp', 'rdesktop')
 	cf_parser.set('general', 'mysql', 'mysql')
+	cf_parser.set('general', 'pgsql', 'psql')
 
 if os_code == 'Windows':
 	cf_parser.set('general', 'browser', 'C:/Progra~1/Mozill~1/firefox.exe')
@@ -92,7 +102,35 @@ cf_parser.set('mysql', 'database', 'enf')
 # Perhaps this should be a class (aka object), but this works!
 host = {'addr': None, 'alive': False, 'ssh': False, 'rdp': False, 'pgsql': False,
 	'whm': False, 'tivoli': False, 'plesk': False, 'innominate': False,
-	'http': False, 'https': False, 'mysql': False}
+	'http': False, 'https': False, 'mysql': False, 'vnc': False}
+
+#port_map = {22: 'ssh', 80: 'http')
+
+
+# 		if port == 22:
+# 			host['ssh'] = True
+# 		if port == 80:
+# 			host['http'] = True
+# 		if port == 443:
+# 			host['https'] = True
+# 		if port == 1581:
+# 			host['tivoli'] = True
+# 		if port == 2087:
+# 			host['whm'] = True
+# 		if port == 3306:
+# 			host['mysql'] = True
+# 		if port == 3389:
+# 			host['rdp'] = True
+# 		if port == 5432:
+# 			host['pgsql'] = True
+# 		if port == 5900:
+# 			host['vnc'] = True
+# 		if port == 5901:
+# 			host['vnc'] = True
+# 		if port == 8443:
+# 			host['plesk'] = True
+# 		if port == 23794:
+# 			host['innominate'] = True
 
 # Parse command line arguments
 arg_parser = argparse.ArgumentParser()
@@ -194,6 +232,10 @@ def port_scan ():
 			host['rdp'] = True
 		if port == 5432:
 			host['pgsql'] = True
+		if port == 5900:
+			host['vnc'] = True
+		if port == 5901:
+			host['vnc'] = True
 		if port == 8443:
 			host['plesk'] = True
 		if port == 23794:
@@ -219,7 +261,7 @@ def do_connect():
 		open_browser('http', 'http://' + host['addr'])
 
 	if host['https']:
-		open_browser('http', 'https://' + host['addr'])
+		open_browser('https', 'https://' + host['addr'])
 
 	if host['tivoli']:
 		open_browser('Tivoli', 'http://' + host['addr'] + ':' + 1581)
@@ -235,6 +277,9 @@ def do_connect():
 
 	if host['innominate']:
 		open_browser('Innominate', 'http://' + host['addr'] + ':' + 23794)
+
+	if host['vnc']:
+		do_vnc(5900)
 
 #-------------------------------------------------------------------------------
 
@@ -313,8 +358,8 @@ def do_pgsql(port):
 		dbnamein = raw_input('Database: [' + dbname + '] ')
 		if dbnamein:
 			dbname = dbnamein
-		subprocess.call(cf_parser.get('general', 'pgsql'), ' -U ' + username,
-			' -h' + host['addr'], ' -D ' + dbname + ' -p ' + port)
+		subprocess.call(cf_parser.get('general', 'pgsql') + ' -U ' + username +
+			' -h ' + host['addr'] + ' -d ' + dbname + ' -p ' + str(port), shell=True)
 
 #-------------------------------------------------------------------------------
 
@@ -333,8 +378,8 @@ def do_mysql(port):
 		dbnamein = raw_input('Database: [' + dbname + ']')
 		if dbnamein:
 			dbname = dbnamein
-		subprocess.call(cf_parser.get('general', 'mysql'), ' -u ' + username,
-			' -h' + host['addr'], ' -D ' + dbname + ' -P ' + port)
+		subprocess.call(cf_parser.get('general', 'mysql') + ' -u ' + username +
+			' -h ' + host['addr'] + ' -D ' + dbname + ' -P ' + str(port), shell=True)
 
 
 #-------------------------------------------------------------------------------
@@ -530,6 +575,26 @@ def create_rdp():
 </dict>
 </plist>''')
 	f.close()
+
+#-------------------------------------------------------------------------------
+
+def do_vnc(port):
+	print '....................'
+	print '.  VNC CAPABLE     .'
+	print '....................'
+	doit = raw_input('Connect? [y/N]')
+	if doit == 'y':
+		print 'Connecting to ' + host['addr']
+		username = cf_parser.get('vnc','username')
+		unamein = raw_input('Username: [' + username + ']')
+		if unamein:
+			username = unamein
+		dbname = cf_parser.get('pgsql','database')
+		dbnamein = raw_input('Database: [' + dbname + ']')
+		if dbnamein:
+			dbname = dbnamein
+		subprocess.call(cf_parser.get('general', 'vnc'), ' -u ' + username,
+			' -h' + host['addr'], ' -D ' + dbname + ' -P ' + str(port))
 
 ################################################################################
 # Main
