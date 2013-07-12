@@ -11,10 +11,8 @@
 #
 ################################################################################
 
-# TODO: Check Python version to ensure it is supported
 # TODO: Config file parser
 # TODO: Test (and fix) connecting to all services on Win/Mac/Linux
-# TODO: Properly handle case when no cmd line arguments are given
 # TODO: Check to see if ch.py is aliased in ~/.bash_profile
 # TODO: Allow user to set more options for RDP connections
 # TODO: Replace program name in config with with full command and replace
@@ -25,7 +23,6 @@
 # service in the cf_parser to get the application to handle it. This will
 # simplify do_connect and make everything better.
 # TODO: FInish VNC section
-# TODO: Make -V print out the version
 
 ################################################################################
 # Import stuff
@@ -145,7 +142,7 @@ arg_parser.add_argument('-t', '--timeout',
 	help='Max time to wait for a port to respond when scanning', default=0.15)
 arg_parser.add_argument('-v', '--verbose', action='count', default=0,
     help='increase output')
-arg_parser.add_argument('-V', '--version', action='count', default=0,
+arg_parser.add_argument('-V', '--version', action='version', version='ch.py 1.0',
     help='Print version')
 args = arg_parser.parse_args()
 
@@ -599,6 +596,10 @@ def do_vnc(port):
 ################################################################################
 # Main
 ################################################################################
+
+if sys.hexversion < 0x02070000:
+	print 'This script requires Python 2.7 or newer. Please upgrade your Python.'
+	sys.exit()
 
 if verbose:
 	print 'Selected ports: ' + str(ports)
